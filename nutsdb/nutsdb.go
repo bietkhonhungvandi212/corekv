@@ -34,6 +34,34 @@ func NewDatastore(path string, opts ...nutsdb.Option) (*Datastore, error) {
 	return &Datastore{db: db}, nil
 }
 
+// TODO: Set the key
 func (d *Datastore) Set(ctx context.Context, key []byte, value []byte) error {
+	//TODO
 	return nil
+}
+
+// func (d *Datastore) Set(ctx context.Context, key []byte, value []byte) error {
+// 	txn, ok := corekv.TryGetCtxTxnG[*nutsDbTxn](ctx)
+// 	if ok {
+// 		return txn.Set(ctx, key, value)
+// 	}
+
+// 	txn, err := d.newTxn(true)
+// 	if err != nil {
+// 		return err
+// 	}
+
+// 	//TODO: handle the discard with rollback
+// 	defer txn.Discard()
+// 	txn.Set(ctx, key, value)
+
+// 	return txn.Commit()
+// }
+
+func (d *Datastore) newTxn(writable bool) (*nutsDbTxn, error) {
+	tx, err := d.db.Begin(writable)
+	if err != nil {
+		return nil, err
+	}
+	return &nutsDbTxn{tx: tx}, nil
 }
