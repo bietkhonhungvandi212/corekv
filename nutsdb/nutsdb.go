@@ -2,8 +2,10 @@ package nutsdb
 
 import (
 	"context"
+	"fmt"
 
 	"github.com/nutsdb/nutsdb"
+	"github.com/sourcenetwork/corekv"
 )
 
 const (
@@ -25,6 +27,7 @@ func NewDatastore(path string, opts ...nutsdb.Option) (*Datastore, error) {
 		return nil, err
 	}
 
+	// Use a global bucket to store the corekv data
 	if err := db.Update(func(tx *nutsdb.Tx) error {
 		return tx.NewBucket(nutsdb.DataStructureBTree, corekvBucket)
 	}); err != nil {
@@ -34,10 +37,32 @@ func NewDatastore(path string, opts ...nutsdb.Option) (*Datastore, error) {
 	return &Datastore{db: db}, nil
 }
 
-// TODO: Set the key
 func (d *Datastore) Set(ctx context.Context, key []byte, value []byte) error {
-	//TODO
-	return nil
+	txn, ok := corekv.TryGetCtxTxnG[*nutsDbTxn](ctx)
+	if ok {
+		return txn.Set(ctx, key, value)
+	}
+
+	txn, err := d.newTxn(false)
+
+	// This is implementation of NutsDB when fail to create a new txn
+	defer func() {
+		if r := recover(); r != nil {
+			fmt.Printf("panic when executing tx, err is %+v", r)
+		}
+	}()
+
+	defer txn.Discard() // NOTE: havent been implemented yet
+
+	if err != nil {
+		return err
+	}
+
+	if err = txn.Set(ctx, key, value); err != nil {
+		return err
+	}
+
+	return txn.Commit() // NOTE: havent been implemented yet
 }
 
 // func (d *Datastore) Set(ctx context.Context, key []byte, value []byte) error {
@@ -63,5 +88,6 @@ func (d *Datastore) newTxn(writable bool) (*nutsDbTxn, error) {
 	if err != nil {
 		return nil, err
 	}
-	return &nutsDbTxn{tx: tx}, nil
+
+	return &nutsDbTxn{tx: tx, db: d}, nil
 }
