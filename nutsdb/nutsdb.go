@@ -3,6 +3,7 @@ package nutsdb
 import (
 	"context"
 	"fmt"
+	"sync"
 
 	"github.com/nutsdb/nutsdb"
 	"github.com/sourcenetwork/corekv"
@@ -15,6 +16,16 @@ const (
 type Datastore struct {
 	db     *nutsdb.DB
 	closed bool
+
+	closeLk sync.RWMutex
+}
+
+type dsItem struct {
+	key       []byte
+	version   uint64
+	val       []byte
+	isDeleted bool
+	isGet     bool
 }
 
 func NewDatastore(path string, opts ...nutsdb.Option) (*Datastore, error) {
@@ -43,7 +54,7 @@ func (d *Datastore) Set(ctx context.Context, key []byte, value []byte) error {
 		return txn.Set(ctx, key, value)
 	}
 
-	txn, err := d.newTxn(false)
+	txn, err := d.newTxn(true)
 
 	// This is implementation of NutsDB when fail to create a new txn
 	defer func() {
@@ -62,7 +73,7 @@ func (d *Datastore) Set(ctx context.Context, key []byte, value []byte) error {
 		return err
 	}
 
-	return txn.Commit() // NOTE: havent been implemented yet
+	return txn.Commit()
 }
 
 // func (d *Datastore) Set(ctx context.Context, key []byte, value []byte) error {

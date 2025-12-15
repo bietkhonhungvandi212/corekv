@@ -44,7 +44,7 @@ func (txn *nutsDbTxn) Delete(ctx context.Context, key []byte) error {
 }
 
 func (txn *nutsDbTxn) Commit() error {
-	return txn.Commit()
+	return txn.tx.Commit()
 }
 
 func (txn *nutsDbTxn) Discard() {
