@@ -22,7 +22,6 @@ type Datastore struct {
 
 type dsItem struct {
 	key       []byte
-	version   uint64
 	val       []byte
 	isDeleted bool
 	isGet     bool
@@ -94,11 +93,34 @@ func (d *Datastore) Set(ctx context.Context, key []byte, value []byte) error {
 // 	return txn.Commit()
 // }
 
-func (d *Datastore) newTxn(writable bool) (*nutsDbTxn, error) {
-	tx, err := d.db.Begin(writable)
+func (ds *Datastore) newTxn(writable bool) (*nutsDbTxn, error) {
+	tx, err := ds.db.Begin(writable)
 	if err != nil {
 		return nil, err
 	}
 
-	return &nutsDbTxn{tx: tx, db: d}, nil
+	return &nutsDbTxn{tx: tx, ds: ds}, nil
+}
+
+func (d *Datastore) Iterator(ctx context.Context, opts corekv.IterOptions) (corekv.Iterator, error) {
+	tx, ok := corekv.TryGetCtxTxnG[*nutsDbTxn](ctx)
+	if ok {
+		return tx.Iterator(ctx, opts)
+	}
+	d.closeLk.RLock()
+	defer d.closeLk.RUnlock()
+	if d.closed {
+		return nil, corekv.ErrDBClosed
+	}
+
+	// if opts.Prefix != nil {
+	// 	return newPrefixIter(d, d.values, opts.Prefix, opts.Reverse, d.getVersion()), nil
+	// }
+	// return newRangeIter(d, d.values, opts.Start, opts.End, opts.Reverse, d.getVersion()), nil
+	txn, err := d.newTxn(false)
+	if err != nil {
+		return nil, err
+	}
+
+	return txn.Iterator(ctx, opts)
 }

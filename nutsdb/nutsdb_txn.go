@@ -6,11 +6,14 @@ import (
 
 	"github.com/nutsdb/nutsdb"
 	"github.com/sourcenetwork/corekv"
+	"github.com/tidwall/btree"
 )
 
 type nutsDbTxn struct {
 	tx *nutsdb.Tx
-	db *Datastore
+	ds *Datastore
+
+	pendingItems *btree.BTreeG[dsItem]
 }
 
 // The tx is created by datastore, it will call db.Begin(writable) to create a new tx
@@ -36,7 +39,13 @@ func (txn *nutsDbTxn) Has(ctx context.Context, key []byte) (bool, error) {
 }
 
 func (txn *nutsDbTxn) Iterator(ctx context.Context, iterOpts corekv.IterOptions) (corekv.Iterator, error) {
-	return nil, nil
+	txn.ds.closeLk.RLock()
+	defer txn.ds.closeLk.RUnlock()
+	if txn.ds.closed {
+		return nil, corekv.ErrDBClosed
+	}
+
+	return NewIterator(txn.ds, txn.tx, txn.pendingItems, iterOpts.Reverse), nil
 }
 
 func (txn *nutsDbTxn) Delete(ctx context.Context, key []byte) error {
