@@ -28,18 +28,33 @@ type iterator struct {
 	currentNutsdbKey  []byte
 
 	currentKey []byte
+	closer     func() error
 }
 
 // var _ corekv.Iterator = (*iterator)(nil)
 
 func NewIterator(d *Datastore, tx *nutsdb.Tx, values *btree.BTreeG[dsItem], reverse bool) *iterator {
+	var pendingIter btree.IterG[dsItem]
+	var firstPendingKey []byte
+
+	if values != nil {
+		pendingIter = values.Iter()
+		firstPendingKey = pendingIter.Item().key
+	}
+
+	nutsdbIter := nutsdb.NewIterator(tx, corekvBucket, nutsdb.IteratorOptions{Reverse: reverse})
+	firstNutsdbKey := nutsdbIter.Key()
+
 	return &iterator{
-		d:          d,
-		nutsdbIter: nutsdb.NewIterator(tx, corekvBucket, nutsdb.IteratorOptions{Reverse: reverse}),
-		values:     values,
-		it:         values.Iter(),
-		reverse:    reverse,
-		reset:      true,
+		d:                 d,
+		nutsdbIter:        nutsdbIter,
+		values:            values,
+		it:                pendingIter,
+		reverse:           reverse,
+		reset:             true,
+		valid:             len(firstPendingKey) > 0 || len(firstNutsdbKey) > 0,
+		currentNutsdbKey:  firstNutsdbKey,
+		currentPendingKey: firstPendingKey,
 	}
 }
 
@@ -63,51 +78,30 @@ func (iter *iterator) Next() (bool, error) {
 	hasNutsdbKey := false
 	hasPendingKey := false
 
-	// For first iteration, we need to setup current key for pending and committed nutsdb
-	if len(iter.currentPendingKey) == 0 && len(iter.currentNutsdbKey) == 0 {
+	// We just call check next
+	if len(iter.currentPendingKey) > 0 && bytes.Compare(iter.currentPendingKey, iter.currentNutsdbKey) < 0 {
 		if iter.reverse {
 			hasPendingKey = iter.it.Prev()
 		} else {
 			hasPendingKey = iter.it.Next()
 		}
 
-		hasNutsdbKey = iter.nutsdbIter.Next()
-
 		if hasPendingKey {
 			iter.currentPendingKey = iter.it.Item().key
+		} else {
+			iter.currentPendingKey = nil
 		}
+	} else {
+		hasNutsdbKey = iter.nutsdbIter.Next()
 
 		if hasNutsdbKey {
 			iter.currentNutsdbKey = iter.nutsdbIter.Key()
-		}
-
-		iter.valid = hasNutsdbKey || hasPendingKey
-	} else {
-		// We just call check next
-		if len(iter.currentPendingKey) > 0 && bytes.Compare(iter.currentPendingKey, iter.currentNutsdbKey) < 0 {
-			if iter.reverse {
-				hasPendingKey = iter.it.Prev()
-			} else {
-				hasPendingKey = iter.it.Next()
-			}
-
-			if hasPendingKey {
-				iter.currentPendingKey = iter.it.Item().key
-			} else {
-				iter.currentPendingKey = nil
-			}
 		} else {
-			hasNutsdbKey = iter.nutsdbIter.Next()
-
-			if hasPendingKey {
-				iter.currentNutsdbKey = iter.nutsdbIter.Key()
-			} else {
-				iter.currentNutsdbKey = nil
-			}
+			iter.currentNutsdbKey = nil
 		}
-
-		iter.valid = hasNutsdbKey || hasPendingKey
 	}
+
+	iter.valid = hasNutsdbKey || hasPendingKey
 
 	return iter.valid, nil
 }
@@ -117,8 +111,24 @@ func (iter *iterator) Key() []byte {
 		return nil
 	}
 
+	if len(iter.currentNutsdbKey) == 0 && len(iter.currentPendingKey) == 0 {
+		return nil
+	}
+
 	// Note we can cache the current item in the iterator
-	return iter.it.Item().key
+	if len(iter.currentNutsdbKey) > 0 && len(iter.currentPendingKey) == 0 {
+		return iter.currentNutsdbKey
+	}
+
+	if len(iter.currentPendingKey) > 0 && len(iter.currentNutsdbKey) == 0 {
+		return iter.currentPendingKey
+	}
+
+	if bytes.Compare(iter.currentNutsdbKey, iter.currentPendingKey) < 0 {
+		return iter.currentNutsdbKey
+	}
+
+	return iter.currentPendingKey
 }
 
 // Value returns the value at the current iterator location.
@@ -160,5 +170,13 @@ func (iter *iterator) Reset() {
 // TODO: implement this
 func (iter *iterator) Close() error {
 	iter.it.Release()
+
+	if iter.closer != nil {
+		return iter.closer()
+	}
 	return nil
+}
+
+func (iter *iterator) withCloser(closer func() error) {
+	iter.closer = closer
 }

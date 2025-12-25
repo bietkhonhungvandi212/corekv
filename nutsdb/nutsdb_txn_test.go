@@ -4,12 +4,15 @@ import (
 	"context"
 	"testing"
 
+	"github.com/nutsdb/nutsdb"
+	"github.com/sourcenetwork/corekv"
 	"github.com/stretchr/testify/require"
 )
 
-func TestNutsDBTxn_Iterate(t *testing.T) {
+var (
+
 	// committed keys
-	committedKeys := [][]byte{
+	committedKeys = [][]byte{
 		[]byte("key1"),
 		[]byte("key2"),
 		[]byte("key5"),
@@ -18,18 +21,43 @@ func TestNutsDBTxn_Iterate(t *testing.T) {
 	}
 
 	// uncommitted keys
-	// key3 := []byte("key3")
-	// key4 := []byte("key4")
-	// key7 := []byte("key7")
-	// key8 := []byte("key8")
+	uncommittedKeys = [][]byte{
+		[]byte("key3"),
+		[]byte("key4"),
+		[]byte("key7"),
+		[]byte("key8"),
+	}
+)
 
+func TestNutsDBTxn_IterateCommittedKeys(t *testing.T) {
 	runTestNutsDB(t, func(t *testing.T, ds *Datastore) {
 		for _, key := range committedKeys {
 			require.NoError(t, ds.Set(context.Background(), key, []byte("value")))
 		}
 
-		// iter, err := ds.Iterator(context.Background(), corekv.IterOptions{ Reverse: false })
+		for i := range committedKeys {
+			require.NoError(t, ds.db.View(func(tx *nutsdb.Tx) error {
+				val, err := tx.Get(corekvBucket, committedKeys[i])
+				require.NoError(t, err)
+				require.Equal(t, val, []byte("value"))
+				return nil
+			}))
+		}
 
-		// txn, err := ds.newTxn(true)
+		iter, err := ds.Iterator(context.Background(), corekv.IterOptions{Reverse: false})
+		require.NoError(t, err)
+		defer iter.Close()
+
+		for i := range committedKeys {
+			iterKey := iter.Key()
+			require.Equal(t, committedKeys[i], iterKey)
+
+			hasNext, err := iter.Next()
+			require.NoError(t, err)
+
+			if !hasNext {
+				break
+			}
+		}
 	})
 }

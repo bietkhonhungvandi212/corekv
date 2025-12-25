@@ -122,5 +122,20 @@ func (d *Datastore) Iterator(ctx context.Context, opts corekv.IterOptions) (core
 		return nil, err
 	}
 
-	return txn.Iterator(ctx, opts)
+	iter, err := txn.Iterator(ctx, opts)
+	if err != nil {
+		return nil, err
+	}
+
+	// if the iterator is call not in a transaction,
+	// we need to commit the transaction when the iterator is closed
+	// to release the lock in nutsdb transaction
+	if nutsIter, ok := iter.(*iterator); ok {
+		nutsIter.withCloser(func() error {
+			txn.Commit() //TODO: can replace with Discard() ?
+			return nil
+		})
+	}
+
+	return iter, nil
 }

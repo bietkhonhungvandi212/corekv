@@ -39,8 +39,8 @@ func (txn *nutsDbTxn) Has(ctx context.Context, key []byte) (bool, error) {
 }
 
 func (txn *nutsDbTxn) Iterator(ctx context.Context, iterOpts corekv.IterOptions) (corekv.Iterator, error) {
-	txn.ds.closeLk.RLock()
-	defer txn.ds.closeLk.RUnlock()
+	// txn.ds.closeLk.RLock()
+	// defer txn.ds.closeLk.RUnlock()
 	if txn.ds.closed {
 		return nil, corekv.ErrDBClosed
 	}
